@@ -1,7 +1,5 @@
 import argparse
-
 import numpy as np
-
 from src.data import load_data
 from src.methods.dummy_methods import DummyClassifier
 from src.methods.logistic_regression import LogisticRegression
@@ -12,119 +10,173 @@ import os
 
 np.random.seed(100)
 
-
 def main(args):
     """
-    The main function of the script. Do not hesitate to play with it
-    and add your own code, visualization, prints, etc!
-
-    Arguments:
-        args (Namespace): arguments that were parsed from the command line (see at the end
-                          of this file). Their value can be accessed as "args.argument".
+    Fonction principale améliorée qui inclut :
+    - La création d'un ensemble de validation (si args.test n'est pas activé)
+    - Une recherche d'hyperparamètre pour la valeur de k via --grid_search pour knn et kmeans
+    - L'évaluation sur l'ensemble de validation (ou test si spécifié)
     """
-    ## 1. First, we load our data
-
-    # EXTRACTED FEATURES DATASET
+    ## 1. Chargement des données
     if args.data_type == "features":
-        feature_data = np.load("features.npz", allow_pickle=True)
+        feature_data = np.load("Data_MS1_2025/features.npz", allow_pickle=True)
         xtrain, xtest = feature_data["xtrain"], feature_data["xtest"]
         ytrain, ytest = feature_data["ytrain"], feature_data["ytest"]
-
-    # ORIGINAL IMAGE DATASET (MS2)
     elif args.data_type == "original":
         data_dir = os.path.join(args.data_path, "dog-small-64")
         xtrain, xtest, ytrain, ytest = load_data(data_dir)
 
-    ## 2. Then we must prepare it. This is where you can create a validation set, normalize, add bias, etc.
-    # Make a validation set (it can overwrite xtest, ytest)
+    ## 2. Préparation des données (création d'un ensemble de validation, sélection de caractéristiques et normalisation)
     if not args.test:
-        ### WRITE YOUR CODE HERE
-        pass
+        def create_validation_set(X, y, val_size=0.2):
+            n_val = int(len(X) * val_size)
+            indices = np.random.permutation(len(X))
+            val_indices = indices[:n_val]
+            train_indices = indices[n_val:]
+            return X[train_indices], X[val_indices], y[train_indices], y[val_indices]
+        xtrain, xval, ytrain, yval = create_validation_set(xtrain, ytrain)
 
-    ### WRITE YOUR CODE HERE to do any other data processing
+        def select_features_by_variance(X, threshold=0.1):
+            """
+            Select features based on their variance.
+            
+            Arguments:
+                X (np.array): features of shape (N,D)
+                threshold (float): minimum variance threshold
+                
+            Returns:
+                selected_indices (np.array): indices of selected features
+            """
+            # Calculate variance for each feature
+            variances = np.var(X, axis=0)
+            
+            # Print variance statistics
+            print("\nFeature variances:")
+            print("Min variance:", np.min(variances))
+            print("Max variance:", np.max(variances))
+            print("Mean variance:", np.mean(variances))
+            print("Median variance:", np.median(variances))
+            
+            # Get indices of features with variance above threshold
+            selected_indices = np.where(variances > threshold)[0]
+            
+            # Print selected features info
+            print(f"\nSelected {len(selected_indices)} features out of {X.shape[1]}")
+            print("Top 5 variances:", sorted(variances, reverse=True)[:5])
+            
+            return selected_indices
 
-    ## 3. Initialize the method you want to use.
+        # Select features by variance
+        selected_indices = select_features_by_variance(xtrain)
+        xtrain = xtrain[:, selected_indices]
+        xval = xval[:, selected_indices]
+        xtest = xtest[:, selected_indices]
 
-    # Use NN (FOR MS2!)
-    if args.method == "nn":
-        raise NotImplementedError("This will be useful for MS2.")
+        def robust_normalize(X, means=None, stds=None):
+            """
+            Normalize data using robust statistics (median and IQR)
+            """
+            if means is None or stds is None:
+                means = np.mean(X, axis=0, keepdims=True)
+                stds = np.std(X, axis=0, keepdims=True)
+            return (X - means) / (stds + 1e-10)
 
-    # Follow the "DummyClassifier" example for your methods
-    if args.method == "dummy_classifier":
-        method_obj = DummyClassifier(arg1=1, arg2=2)
+        # Calculate statistics from training data
+        means = np.mean(xtrain, axis=0, keepdims=True)
+        stds = np.std(xtrain, axis=0, keepdims=True)
+        
+        # Normalize all data using training statistics
+        xtrain = robust_normalize(xtrain, means=means, stds=stds)
+        xval = robust_normalize(xval, means=means, stds=stds)
+        xtest = robust_normalize(xtest, means=means, stds=stds)
+        
+        print("\nData statistics after normalization:")
+        print("Training data - mean:", np.mean(xtrain), "std:", np.std(xtrain))
+        print("Validation data - mean:", np.mean(xval), "std:", np.std(xval))
+        print("Test data - mean:", np.mean(xtest), "std:", np.std(xtest))
+        
+    ## 3. Recherche d'hyperparamètres pour k (pour knn et kmeans)
+    if args.grid_search and args.method in ["knn", "kmeans"]:
+        candidate_ks = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+        best_k = None
+        best_f1 = -np.inf
+        best_acc = -np.inf
+        results = {}
+        for k_val in candidate_ks:
+            if args.method == "knn":
+                model = KNN(k=k_val)
+            elif args.method == "kmeans":
+                model = KMeans(n_clusters=k_val, max_iter=args.max_iters)
+            
+            preds_train = model.fit(xtrain, ytrain)
+            # Évaluation sur l'ensemble de validation
+            preds_val = model.predict(xval)
+            acc = accuracy_fn(preds_val, yval)
+            f1 = macrof1_fn(preds_val, yval)
+            results[k_val] = {"accuracy": acc, "f1": f1}
+            print(f"Pour k = {k_val}: Validation set: accuracy = {acc:.3f}% - F1-score = {f1:.6f}")
+            
+            if f1 > best_f1:
+                best_f1 = f1
+                best_acc = acc
+                best_k = k_val
+        
+        print(f"\nMeilleur k sur validation: {best_k} avec accuracy = {best_acc:.3f}% et F1 = {best_f1:.6f}")
+        # Utiliser le meilleur k pour le modèle final
+        if args.method == "knn":
+            method_obj = KNN(k=best_k)
+        elif args.method == "kmeans":
+            method_obj = KMeans(n_clusters=best_k, max_iter=args.max_iters)
+    else:
+        # Choix du modèle selon l'argument direct
+        if args.method == "dummy_classifier":
+            method_obj = DummyClassifier(arg1=1, arg2=2)
+        elif args.method == "knn":
+            method_obj = KNN(k=args.K)
+        elif args.method == "kmeans":
+            method_obj = KMeans(n_clusters=args.K, max_iter=args.max_iters)
+        elif args.method == "logistic_regression":
+            method_obj = LogisticRegression(lr=args.lr, max_iters=args.max_iters, reg_strength=0.1)
+        else:
+            raise ValueError(f"Unknown method: {args.method}")
 
-    elif ...:  ### WRITE YOUR CODE HERE
-        pass
-
-    ## 4. Train and evaluate the method
-    # Fit (:=train) the method on the training data for classification task
+    ## 4. Entraînement et évaluation
     preds_train = method_obj.fit(xtrain, ytrain)
+    if args.test:
+        preds = method_obj.predict(xtest)
+        target_set = "Test set"
+        true_labels = ytest
+    else:
+        preds = method_obj.predict(xval)
+        target_set = "Validation set"
+        true_labels = yval
 
-    # Predict on unseen data
-    preds = method_obj.predict(xtest)
-
-    # Report results: performance on train and valid/test sets
-    acc = accuracy_fn(preds_train, ytrain)
-    macrof1 = macrof1_fn(preds_train, ytrain)
-    print(f"\nTrain set: accuracy = {acc:.3f}% - F1-score = {macrof1:.6f}")
-
-    acc = accuracy_fn(preds, ytest)
-    macrof1 = macrof1_fn(preds, ytest)
-    print(f"Test set:  accuracy = {acc:.3f}% - F1-score = {macrof1:.6f}")
-
-    ### WRITE YOUR CODE HERE if you want to add other outputs, visualization, etc.
-
+    train_acc = accuracy_fn(preds_train, ytrain)
+    train_f1 = macrof1_fn(preds_train, ytrain)
+    print(f"\nTrain set: accuracy = {train_acc:.3f}% - F1-score = {train_f1:.6f}")
+    
+    set_acc = accuracy_fn(preds, true_labels)
+    set_f1 = macrof1_fn(preds, true_labels)
+    print(f"{target_set}: accuracy = {set_acc:.3f}% - F1-score = {set_f1:.6f}")
 
 if __name__ == "__main__":
-    # Definition of the arguments that can be given through the command line (terminal).
-    # If an argument is not given, it will take its default value as defined below.
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--method",
-        default="dummy_classifier",
-        type=str,
-        help="dummy_classifier / knn / logistic_regression / kmeans / nn (MS2)",
-    )
-    parser.add_argument(
-        "--data_path", default="data", type=str, help="path to your dataset"
-    )
-    parser.add_argument(
-        "--data_type", default="features", type=str, help="features/original(MS2)"
-    )
-    parser.add_argument(
-        "--K", type=int, default=1, help="number of neighboring datapoints used for knn"
-    )
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=1e-5,
-        help="learning rate for methods with learning rate",
-    )
-    parser.add_argument(
-        "--max_iters",
-        type=int,
-        default=100,
-        help="max iters for methods which are iterative",
-    )
-    parser.add_argument(
-        "--test",
-        action="store_true",
-        help="train on whole training data and evaluate on the test data, otherwise use a validation set",
-    )
-
-    # Feel free to add more arguments here if you need!
-
-    # MS2 arguments
-    parser.add_argument(
-        "--nn_type",
-        default="cnn",
-        help="which network to use, can be 'Transformer' or 'cnn'",
-    )
-    parser.add_argument(
-        "--nn_batch_size", type=int, default=64, help="batch size for NN training"
-    )
-
-    # "args" will keep in memory the arguments and their values,
-    # which can be accessed as "args.data", for example.
+    parser.add_argument("--method", default="dummy_classifier", type=str, 
+                        help="dummy_classifier / knn / logistic_regression / kmeans / nn (MS2)")
+    parser.add_argument("--data_path", default="data", type=str, help="path to your dataset")
+    parser.add_argument("--data_type", default="features", type=str, help="features/original(MS2)")
+    parser.add_argument("--K", type=int, default=1, 
+                        help="Nombre de voisins pour knn ou nombre de clusters pour kmeans")
+    parser.add_argument("--lr", type=float, default=1e-5, help="learning rate pour les méthodes utilisant un LR")
+    parser.add_argument("--max_iters", type=int, default=100, help="Nombre max d'itérations pour les méthodes itératives")
+    parser.add_argument("--test", action="store_true", 
+                        help="Entraîner sur l'ensemble complet de formation et évaluer sur le test, sinon utiliser un ensemble de validation")
+    parser.add_argument("--grid_search", action="store_true", 
+                        help="Effectuer une recherche d'hyperparamètre pour k (pour knn et kmeans)")
+    
+    # Arguments pour MS2
+    parser.add_argument("--nn_type", default="cnn", help="Réseau à utiliser, peut être 'Transformer' ou 'cnn'")
+    parser.add_argument("--nn_batch_size", type=int, default=64, help="Batch size pour l'entraînement du réseau de neurones")
+    
     args = parser.parse_args()
     main(args)
