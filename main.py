@@ -10,6 +10,27 @@ import os
 
 np.random.seed(100)
 
+def find_best_lr_logistic(xtrain, ytrain, xval, yval):
+    learning_rates = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1]
+    best_lr = None
+    best_acc = -np.inf
+    results = {}
+
+    print("\nRecherche du meilleur learning rate pour LogisticRegression :\n")
+    for lr in learning_rates:
+        model = LogisticRegression(lr=lr)
+        model.fit(xtrain, ytrain)
+        preds = model.predict(xval)
+        acc = accuracy_fn(preds, yval)
+        results[lr] = acc
+        print(f"  lr = {lr:.0e} --> accuracy = {acc:.4f}")
+        if acc > best_acc:
+            best_acc = acc
+            best_lr = lr
+
+    print(f"\nMeilleur learning rate = {best_lr:.0e} avec accuracy = {best_acc:.4f}")
+    return best_lr
+
 def main(args):
     """
     Fonction principale améliorée qui inclut :
@@ -49,10 +70,6 @@ def main(args):
         xval = normalize_fn(xval, means, stds)
         xtest = normalize_fn(xtest, means, stds)
         
-        print("\nData statistics after normalization:")
-        print("Training data - mean:", np.mean(xtrain), "std:", np.std(xtrain))
-        print("Validation data - mean:", np.mean(xval), "std:", np.std(xval))
-        print("Test data - mean:", np.mean(xtest), "std:", np.std(xtest))
         
     ## 3. Recherche d'hyperparamètres pour k (pour knn et kmeans)
     if args.grid_search and args.method in ["knn", "kmeans"]:
@@ -89,6 +106,9 @@ def main(args):
             method_obj = KNN(k=best_k)
         elif args.method == "kmeans":
             method_obj = KMeans(n_clusters=best_k, max_iter=args.max_iters)
+    elif args.grid_search and args.method == "logistic_regression":
+        best_lr = find_best_lr_logistic(xtrain, ytrain, xval, yval)
+        method_obj = LogisticRegression(lr=best_lr, max_iters=args.max_iters, reg_strength=0.1)
     else:
         # Choix du modèle selon l'argument direct
         if args.method == "dummy_classifier":

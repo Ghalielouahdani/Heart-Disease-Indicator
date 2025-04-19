@@ -8,7 +8,7 @@ class LogisticRegression(object):
     Logistic regression classifier.
     """
 
-    def __init__(self, lr, max_iters=500, reg_strength=0.01):
+    def __init__(self, lr, max_iters=2000, reg_strength=0.001, weight_init="random", tol=1e-4, patience=10):
         """
         Initialize the new object (see dummy_methods.py)
         and set its arguments.
@@ -17,11 +17,16 @@ class LogisticRegression(object):
             lr (float): learning rate of the gradient descent
             max_iters (int): maximum number of iterations
             reg_strength (float): strength of L2 regularization
+            weight_init (str): "zeros" or "random"
+            tol (float): early‑stopping tolerance on relative loss improvement
+            patience (int): number of consecutive checks with improvement < tol before stopping
         """
         self.lr = lr
         self.max_iters = max_iters
         self.reg_strength = reg_strength
-
+        self.weight_init = weight_init
+        self.tol = tol
+        self.patience = patience
 
     def fit(self, training_data, training_labels):
         """
@@ -42,9 +47,15 @@ class LogisticRegression(object):
         Y_onehot = label_to_onehot(training_labels, n_classes)
 
         # Initialize weights
-        self.W = np.zeros((D, n_classes))
+        if self.weight_init == "random":
+            rng = np.random.default_rng(seed=42)
+            self.W = rng.normal(0, 0.01, size=(D, n_classes))
+        else:
+            self.W = np.zeros((D, n_classes))
 
         # Training loop with gradient descent
+        prev_loss = np.inf
+        patience_counter = 0
         for i in range(self.max_iters):
             # Compute scores and apply softmax
             scores = np.dot(X, self.W)
@@ -57,6 +68,26 @@ class LogisticRegression(object):
 
             # Update weights
             self.W -= self.lr * grad
+            
+            # Compute loss
+            cross_ent = -np.mean(np.sum(Y_onehot * np.log(probs + 1e-12), axis=1))
+            l2_loss = self.reg_strength * np.sum(self.W ** 2)
+            total_loss = cross_ent + l2_loss
+
+            # Print every 100 iters
+            if i % 100 == 0:
+                print(f"iter {i}: loss = {total_loss:.4f}")
+
+            # Early stopping check
+            rel_improv = (prev_loss - total_loss) / (abs(prev_loss) + 1e-12)
+            if rel_improv < self.tol:
+                patience_counter += 1
+                if patience_counter >= self.patience:
+                    print(f"Early stopping at iter {i} (no significant improvement)")
+                    break
+            else:
+                patience_counter = 0
+            prev_loss = total_loss
 
         # Return predictions on training data
         return self.predict(training_data)

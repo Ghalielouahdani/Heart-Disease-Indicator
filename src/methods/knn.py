@@ -5,13 +5,13 @@ class KNN(object):
         kNN classifier object.
     """
 
-    def __init__(self, k=1, task_kind = "classification"):
+    def __init__(self, k=1, task_kind="classification"):
         """
             Call set_arguments function of this class.
         """
 
-        self.k = k
-        self.task_kind =task_kind
+        self.k=k
+        self.task_kind=task_kind
 
     def fit(self, training_data, training_labels):
         """
@@ -45,19 +45,32 @@ class KNN(object):
             Returns:
                 test_labels (np.array): labels of shape (N,)
         """
-        test_labels = np.zeros(test_data.shape[0])
+        #  Vectorised implementation using np.apply_along_axis 
+        def _knn_single(x_query, training_features, training_labels, k, task_kind):
+            """
+            Helper function that returns the KNN prediction for one sample.
+            This function will be applied to each test sample via np.apply_along_axis.
+            """
+            # Compute Euclidean distances to all training points
+            dists = np.sqrt(np.sum((training_features - x_query) ** 2, axis=1))
+            # Indices of the k nearest neighbours
+            nn_idx = np.argpartition(dists, k)[:k]
+            nn_labels = training_labels[nn_idx]
 
-        for i in range(test_data.shape[0]):
-            # Calculate distances to all training points
-            distances = np.sqrt(np.sum((self.trainingData - test_data[i])**2, axis=1))
-            
-            # Get k nearest neighbors
-            nearest_neighbors = np.argsort(distances)[:self.k]
-            neighbor_labels = self.trainingLabels[nearest_neighbors]
-            
-            if self.task_kind == "classification":
-                test_labels[i] = np.bincount(neighbor_labels.astype(int)).argmax()
+            if task_kind == "classification":
+                return np.bincount(nn_labels.astype(int)).argmax()
             else:
-                test_labels[i] = np.mean(neighbor_labels)
+                return np.mean(nn_labels)
+
+        # Apply the helper across axis 1 (each row is a query sample)
+        test_labels = np.apply_along_axis(
+            _knn_single,
+            axis=1,
+            arr=test_data,
+            training_features=self.trainingData,
+            training_labels=self.trainingLabels,
+            k=self.k,
+            task_kind=self.task_kind
+        )
 
         return test_labels
