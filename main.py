@@ -5,7 +5,7 @@ from src.methods.dummy_methods import DummyClassifier
 from src.methods.logistic_regression import LogisticRegression
 from src.methods.knn import KNN
 from src.methods.kmeans import KMeans
-from src.utils import normalize_fn, append_bias_term, accuracy_fn, macrof1_fn, mse_fn
+from src.utils import normalize_fn, accuracy_fn, macrof1_fn, mse_fn
 import os
 
 np.random.seed(100)
@@ -28,6 +28,10 @@ def main(args):
 
     ## 2. Préparation des données (création d'un ensemble de validation, sélection de caractéristiques et normalisation)
     if not args.test:
+        indices = np.arange(xtrain.shape[0])
+        np.random.shuffle(indices)
+        xtrain, ytrain = xtrain[indices], ytrain[indices]
+        
         def create_validation_set(X, y, val_size=0.2):
             n_val = int(len(X) * val_size)
             indices = np.random.permutation(len(X))
@@ -36,59 +40,14 @@ def main(args):
             return X[train_indices], X[val_indices], y[train_indices], y[val_indices]
         xtrain, xval, ytrain, yval = create_validation_set(xtrain, ytrain)
 
-        def select_features_by_variance(X, threshold=0.1):
-            """
-            Select features based on their variance.
-            
-            Arguments:
-                X (np.array): features of shape (N,D)
-                threshold (float): minimum variance threshold
-                
-            Returns:
-                selected_indices (np.array): indices of selected features
-            """
-            # Calculate variance for each feature
-            variances = np.var(X, axis=0)
-            
-            # Print variance statistics
-            print("\nFeature variances:")
-            print("Min variance:", np.min(variances))
-            print("Max variance:", np.max(variances))
-            print("Mean variance:", np.mean(variances))
-            print("Median variance:", np.median(variances))
-            
-            # Get indices of features with variance above threshold
-            selected_indices = np.where(variances > threshold)[0]
-            
-            # Print selected features info
-            print(f"\nSelected {len(selected_indices)} features out of {X.shape[1]}")
-            print("Top 5 variances:", sorted(variances, reverse=True)[:5])
-            
-            return selected_indices
-
-        # Select features by variance
-        selected_indices = select_features_by_variance(xtrain)
-        xtrain = xtrain[:, selected_indices]
-        xval = xval[:, selected_indices]
-        xtest = xtest[:, selected_indices]
-
-        def robust_normalize(X, means=None, stds=None):
-            """
-            Normalize data using robust statistics (median and IQR)
-            """
-            if means is None or stds is None:
-                means = np.mean(X, axis=0, keepdims=True)
-                stds = np.std(X, axis=0, keepdims=True)
-            return (X - means) / (stds + 1e-10)
-
         # Calculate statistics from training data
         means = np.mean(xtrain, axis=0, keepdims=True)
         stds = np.std(xtrain, axis=0, keepdims=True)
         
         # Normalize all data using training statistics
-        xtrain = robust_normalize(xtrain, means=means, stds=stds)
-        xval = robust_normalize(xval, means=means, stds=stds)
-        xtest = robust_normalize(xtest, means=means, stds=stds)
+        xtrain = normalize_fn(xtrain, means, stds)
+        xval = normalize_fn(xval, means, stds)
+        xtest = normalize_fn(xtest, means, stds)
         
         print("\nData statistics after normalization:")
         print("Training data - mean:", np.mean(xtrain), "std:", np.std(xtrain))
@@ -122,6 +81,9 @@ def main(args):
                 best_k = k_val
         
         print(f"\nMeilleur k sur validation: {best_k} avec accuracy = {best_acc:.3f}% et F1 = {best_f1:.6f}")
+        # Affichage du meilleur k en fonction de l'accuracy seule
+        best_acc_k = max(results.items(), key=lambda x: x[1]["accuracy"])
+        print(f"Meilleur k selon l'accuracy seule : {best_acc_k[0]} avec accuracy = {best_acc_k[1]['accuracy']:.3f}%")
         # Utiliser le meilleur k pour le modèle final
         if args.method == "knn":
             method_obj = KNN(k=best_k)
@@ -142,6 +104,7 @@ def main(args):
 
     ## 4. Entraînement et évaluation
     preds_train = method_obj.fit(xtrain, ytrain)
+    preds_train = method_obj.predict(xtrain)
     if args.test:
         preds = method_obj.predict(xtest)
         target_set = "Test set"
