@@ -122,7 +122,7 @@ def main(args):
         
     ## 3. Recherche d'hyperparamètres pour k (pour knn et kmeans)
     if args.grid_search and args.method in ["knn", "kmeans"]:
-        candidate_ks = [2, 3, 4, 5, 6, 7, 8, 9, 10]
+        candidate_ks = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         best_k = None
         best_f1 = -np.inf
         best_acc = -np.inf
