@@ -7,6 +7,7 @@ from src.methods.knn import KNN
 from src.methods.kmeans import KMeans
 from src.utils import normalize_fn, accuracy_fn, macrof1_fn, mse_fn
 import os
+import matplotlib.pyplot as plt
 
 np.random.seed(100)
 
@@ -30,6 +31,54 @@ def find_best_lr_logistic(xtrain, ytrain, xval, yval):
 
     print(f"\nMeilleur learning rate = {best_lr:.0e} avec accuracy = {best_acc:.4f}")
     return best_lr
+
+def try_logistic_regression_grid(xtrain, ytrain, xval, yval):
+    learning_rates = [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1]
+    max_iters_list = [50, 100, 200, 500, 1000]
+    acc_grid = np.zeros((len(learning_rates), len(max_iters_list)))
+    f1_grid = np.zeros((len(learning_rates), len(max_iters_list)))
+
+    print("\nGrid search for lr and max_iters:\n")
+    for i, lr in enumerate(learning_rates):
+        for j, max_iters in enumerate(max_iters_list):
+            print(f"Training LogisticRegression with lr={lr}, max_iters={max_iters}")
+            model = LogisticRegression(lr=lr, max_iters=max_iters, reg_strength=0.1)
+            model.fit(xtrain, ytrain)
+            preds = model.predict(xval)
+            acc = accuracy_fn(preds, yval)
+            f1 = macrof1_fn(preds, yval)
+            acc_grid[i, j] = acc
+            f1_grid[i, j] = f1
+            print(f"  Validation Accuracy: {acc:.4f}, F1: {f1:.6f}")
+
+    # Plotting heatmaps
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    for ax, grid, title in zip(axes, [acc_grid, f1_grid], ["Validation Accuracy", "Validation F1-score"]):
+        im = ax.imshow(grid, aspect='auto', cmap='coolwarm')
+        ax.set_xticks(np.arange(len(max_iters_list)))
+        ax.set_yticks(np.arange(len(learning_rates)))
+        ax.set_xticklabels(max_iters_list, rotation=45, ha='right')
+        ax.set_yticklabels(learning_rates)
+        ax.set_xlabel("max_iters")
+        ax.set_ylabel("learning rate")
+        ax.set_title(title)
+        # Highlight best
+        best = np.unravel_index(np.argmax(grid), grid.shape)
+        ax.add_patch(plt.Rectangle((best[1]-0.5, best[0]-0.5), 1, 1,
+                                  edgecolor='red', facecolor='none', linewidth=2))
+        # Annotate values
+        for ii in range(grid.shape[0]):
+            for jj in range(grid.shape[1]):
+                val = grid[ii, jj]
+                txt = f"{val:.2f}" if title == "Accuracy" else f"{val:.4f}"
+                ax.text(jj, ii, txt, ha='center', va='center', color='white', fontsize=5)
+        fig.colorbar(im, ax=ax)
+    plt.tight_layout()
+    plt.show()
+
+    # Return best hyperparameters based on accuracy
+    best_idx = np.unravel_index(np.argmax(acc_grid), acc_grid.shape)
+    return learning_rates[best_idx[0]], max_iters_list[best_idx[1]]
 
 def main(args):
     """
@@ -107,8 +156,8 @@ def main(args):
         elif args.method == "kmeans":
             method_obj = KMeans(n_clusters=best_k, max_iter=args.max_iters)
     elif args.grid_search and args.method == "logistic_regression":
-        best_lr = find_best_lr_logistic(xtrain, ytrain, xval, yval)
-        method_obj = LogisticRegression(lr=best_lr, max_iters=args.max_iters, reg_strength=0.1)
+        best_lr, best_max_iters = try_logistic_regression_grid(xtrain, ytrain, xval, yval)
+        method_obj = LogisticRegression(lr=best_lr, max_iters=best_max_iters, reg_strength=0.1)
     else:
         # Choix du modèle selon l'argument direct
         if args.method == "dummy_classifier":
@@ -160,6 +209,5 @@ if __name__ == "__main__":
     # Arguments pour MS2
     parser.add_argument("--nn_type", default="cnn", help="Réseau à utiliser, peut être 'Transformer' ou 'cnn'")
     parser.add_argument("--nn_batch_size", type=int, default=64, help="Batch size pour l'entraînement du réseau de neurones")
-    
     args = parser.parse_args()
     main(args)
